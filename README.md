@@ -1,6 +1,6 @@
 # Semantic Kernel Auto Document Generator
 
-A PR tool that uses Microsoft's Semantic Kernel and LLMs to generate code documentation.
+A command line tool that uses Microsoft's Semantic Kernel and LLMs to generate code documentation.
 
 ## Prerequisites
 
@@ -28,12 +28,16 @@ AZURE_OPENAI_API_KEY=""
 
 ## Running
 
-To run the application within Visual Studio Code, just hit `F5`.
-As configured in `launch.json` and `tasks.json`, Visual Studio Code will run `poetry install` followed by `python hello_world/main.py`
-
-To build and run the console application from the terminal use the following commands:
+To run:
 
 ```powershell
 poetry install
-poetry run python hello_world/main.py
+poetry run sk-autodocs --help
+```
+
+To rewrite code in your directory:
+
+```powershell
+poetry install
+poetry run sk-autodocs --path .
 ```
