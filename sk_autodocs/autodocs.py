@@ -28,10 +28,21 @@ ignore_directory_list = [
 ignore_file_list = ["__init__.py", "Program.cs", "AssemblyInfo.cs"]
 language_to_docstyle = {"C#": ".NET XML", "Python": "google style", "Java": "javadoc"}
 
-
 async def run_autodocs(
     code_files_by_language: Dict[str, List[str]], output_directory: str = None
 ):
+    """
+    Run the autodocs process on the given code files.
+
+    Args:
+        code_files_by_language (Dict[str, List[str]]): A dictionary containing the code files
+            to process, grouped by language.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+
+    Returns:
+        List: A list of results from processing the code files.
+    """
     kernel = setup_kernel()
 
     output_directory = prepare_output_directory(output_directory)
@@ -47,6 +58,17 @@ async def run_autodocs(
 
 
 def get_code_files(paths: List[str], file_of_paths: str = None) -> Dict[str, List[str]]:
+    """
+    Get the code files from the given paths and file of paths.
+
+    Args:
+        paths (List[str]): A list of paths to search for code files.
+        file_of_paths (str, optional): A file containing a list of paths to search for code files.
+            Defaults to None.
+
+    Returns:
+        Dict[str, List[str]]: A dictionary containing the code files, grouped by language.
+    """
     code_fetcher = CodeFetcher(
         supported_filetypes_to_lanaguage,
         ignore_directory_list=ignore_directory_list,
@@ -62,6 +84,15 @@ def get_code_files(paths: List[str], file_of_paths: str = None) -> Dict[str, Lis
 
 
 async def read_code_file(file: str) -> str:
+    """
+    Read the contents of a code file.
+
+    Args:
+        file (str): The path to the code file.
+
+    Returns:
+        str: The contents of the code file.
+    """
     click.echo("Reading " + os.path.abspath(file))
     try:
         with open(os.path.abspath(file), "r") as f:
@@ -72,6 +103,18 @@ async def read_code_file(file: str) -> str:
 
 
 async def write_code_file(file: str, code: str, output_directory: str = None):
+    """
+    Write the contents of a code file to the output directory.
+
+    Args:
+        file (str): The path to the code file.
+        code (str): The contents of the code file.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+
+    Returns:
+        bool: True if the file was written successfully, False otherwise.
+    """
     output_path = os.path.join(output_directory, file)
     click.echo("Writing to " + output_path)
     try:
@@ -89,6 +132,16 @@ async def write_code_file(file: str, code: str, output_directory: str = None):
 async def process_code_file(
     plugin: SKFunctionBase, file: str, language: str, output_directory: str = None
 ):
+    """
+    Process a code file using the given plugin, language, and output directory.
+
+    Args:
+        plugin (SKFunctionBase): The plugin to use for processing the code file.
+        file (str): The path to the code file.
+        language (str): The programming language of the code file.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+    """
     docstyle = language_to_docstyle[language]
     click.echo(f"Processing {file} with {language} and {docstyle}")
 
@@ -112,6 +165,12 @@ async def process_code_file(
 
 
 def setup_kernel() -> sk.Kernel:
+    """
+    Set up the semantic kernel.
+
+    Returns:
+        sk.Kernel: The configured semantic kernel.
+    """
     kernel = sk.Kernel()
 
     # Configure AI service used by the kernel. Load settings from the .env file.
@@ -127,6 +186,16 @@ def setup_kernel() -> sk.Kernel:
 
 
 def prepare_output_directory(output_directory: str = None) -> str:
+    """
+    Prepare the output directory for the processed files.
+
+    Args:
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+
+    Returns:
+        str: The prepared output directory.
+    """
     if output_directory is None:
         output_directory = os.getcwd()
     elif not os.path.isabs(output_directory):

@@ -41,6 +41,15 @@ def autodocs(
     file_of_paths: str = None,
     dotnet_build_log: str = None,
 ):
+    """
+    Main entry point for the Autodocs CLI.
+
+    Args:
+        path (str): The path to look for the code. Can be a file, directory, or github repository.
+        output_directory (str, optional): The directory to output the modified files. If not specified, the files will be modified in place.
+        file_of_paths (str, optional): The path to a file containing the paths to look for the code separated by newlines. Paths can be a file, directory, or github repository.
+        dotnet_build_log (str, optional): The path to a dotnet build log to parse for missing documentation warnings.
+    """
     if path is None and file_of_paths is None and dotnet_build_log is None:
         print("Please specify a path, file of paths, and/or a dotnet build log.")
         return
@@ -64,11 +73,6 @@ def autodocs(
     )
 
 
-"""
-Parses a dotnet build log and outputs a file for each path missing code documentation.
-"""
-
-
 @autodocs.command("parse_dotnet_build_log")
 @click.option(
     "--path",
@@ -83,5 +87,12 @@ Parses a dotnet build log and outputs a file for each path missing code document
     help="The path to the output file.",
 )
 def parse_dotnet_build_log(path: str, output_file: str):
+    """
+    Parses a dotnet build log and outputs a file for each path missing code documentation.
+
+    Args:
+        path (str): The path to the dotnet build log.
+        output_file (str): The path to the output file.
+    """
     print("Parsing dotnet build log")
     log_parser.parse_dotnet_build_log(path, output_file)
