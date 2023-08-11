@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "sk-autodocs"
+version = "0.1.0"
+description = "A PR tool that uses Microsoft's Semantic Kernel and LLMs to generate code documentation."
+authors = ["Microsoft <SK-Support@microsoft.com>"]
+readme = "README.md"
+packages = [{include = "sk_autodocs"}]
+
+[tool.poetry.scripts]
+sk-autodocs = "sk_autodocs.main:autodocs"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+semantic-kernel = "^0.3.6.dev0"
+click = "8.1.6"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+ruff = "0.0.284"
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+select = ["E", "F", "I"]
+line-length = 120
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
