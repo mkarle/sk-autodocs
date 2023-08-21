@@ -41,3 +41,10 @@ To rewrite code in your directory:
 poetry install
 poetry run sk-autodocs --path .
 ```
+
+To rewrite dotnet code from a build log that contains CS1591 warnings:
+
+```powershell
+poetry install
+poetry run sk-autodocs --dotnet-build-log path/to/build.log
+```

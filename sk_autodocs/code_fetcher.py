@@ -2,47 +2,65 @@ import os
 import tempfile
 from typing import List, Mapping, Dict
 
+supported_filetypes_to_lanaguage = {".py": "Python", ".cs": "C#", ".java": "Java"}
+ignore_directory_list = [
+    ".venv",
+    "bin",
+    "build",
+    "dist",
+    "node_modules",
+    "obj",
+    "Debug",
+    "tst",
+    "tests",
+    "IntegrationTests",
+]
+ignore_file_list = ["__init__.py", "Program.cs", "AssemblyInfo.cs"]
+language_to_docstyle = {"C#": ".NET XML", "Python": "google style", "Java": "javadoc"}
 
-class CodeFetcher:
-    """
-    A class to fetch code files from a GitHub repository or local directory.
 
-    Attributes:
-        supported_filetypes_to_language (Mapping[str, str]): A mapping of supported file extensions to their respective languages.
-        ignore_directory_list (List[str]): A list of directory names to ignore while fetching code files.
-        ignore_file_list (List[str]): A list of file names to ignore while fetching code files.
-
-    Example usage:
-
-        code_fetcher = CodeFetcher(
-            supported_filetypes_to_language={".py": "Python", ".cs": "CSharp", ".java": "Java"},
-            ignore_directory_list=[".git", "__pycache__"],
-            ignore_file_list=["README.md"]
-        )
-
-        code_files = code_fetcher.get_code_files(["https://github.com/user/repo", "/path/to/local/directory"])
-    """
+class CodeFile:
+    language: str
+    docstyle: str
+    path: str
+    code: str
+    members_missing_docstrings: List[str]
 
     def __init__(
         self,
-        supported_filetypes_to_language: Mapping[str, str],
-        ignore_directory_list: List[str],
-        ignore_file_list: List[str],
+        path: str = None,
+        code: str = None,
+        members_missing_docstrings: List[str] = None,
     ):
-        self.supported_filetypes_to_lanaguage = supported_filetypes_to_language
-        self.ignore_directory_list = ignore_directory_list
-        self.ignore_file_list = ignore_file_list
+        self.path = path
+        self.language = None
+        self.docstyle = None
+        for extension, language in supported_filetypes_to_lanaguage.items():
+            if path.endswith(extension):
+                self.language = language
+                self.docstyle = language_to_docstyle[language]
+                break
+        self.code = code
+        self.members_missing_docstrings = members_missing_docstrings
 
-    def get_code_files(self, paths: List[str]) -> Dict[str, List[str]]:
-        """
-        Fetches code files from a list of GitHub repositories or local directories and returns a dictionary of language -> code files.
+    def __repr__(self):
+        return f"Path: {self.path}"
 
-        Args:
-            paths (List[str]): A list of GitHub repository URLs or local directory paths.
+    def __eq__(self, other):
+        if isinstance(other, CodeFile):
+            return self.path == other.path
+        else:
+            return False
 
-        Returns:
-            Dict[str, List[str]]: A dictionary of language -> code files.
-        """
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self.__repr__())
+
+
+class CodeFetcher:
+    def get_code_files(self, paths: List[str]) -> List[CodeFile]:
         files = []
         for path in paths:
             if not path:
@@ -50,127 +68,100 @@ class CodeFetcher:
             if path.startswith("https://github.com"):
                 files.extend(self.get_github_files(path))
             elif os.path.isdir(path):
-                files.extend(self.get_local_files(path))
+                files.extend(self.get_local_files_in_dir(path))
             else:
-                files.append(path)
+                files.append(CodeFile(path))
 
         return self.filter_code_files_by_language(files)
 
-    def get_github_files(self, github_url: str) -> str:
-        """
-        Gets files from a GitHub repository.
-
-        Args:
-            github_url (str): The URL of the GitHub repository.
-
-        Returns:
-            str: The path to the cloned repository.
-        """
+    def get_github_files(self, github_url: str) -> List[CodeFile]:
         # Create a temporary directory to clone the repository into
         temp_dir = tempfile.mkdtemp()
 
         # Clone the repository into the temporary directory
         os.system(f"git clone {github_url} {temp_dir}")
 
-        return self.get_local_files(temp_dir)
+        return self.get_local_files_in_dir(temp_dir)
 
-    def get_local_files(self, local_path: str) -> str:
-        """
-        Gets files from a local directory.
-
-        Args:
-            local_path (str): The path to the local directory.
-
-        Returns:
-            str: The path to the local directory.
-        """
+    def get_local_files_in_dir(self, local_dir: str) -> List[CodeFile]:
         # Walk the directory and get all files
         # Ignore directories from the ignore list
         files = []
-        for root, dirs, filenames in os.walk(local_path):
+        for root, dirs, filenames in os.walk(local_dir):
             for filename in filenames:
                 if not any(
-                    ignore in root for ignore in self.ignore_directory_list
-                ) and not any(ignore in filename for ignore in self.ignore_file_list):
-                    files.append(os.path.join(root, filename))
+                    ignore in root for ignore in ignore_directory_list
+                ) and not any(ignore in filename for ignore in ignore_file_list):
+                    files.append(CodeFile(path=os.path.join(root, filename)))
         return files
 
-    def filter_code_files_by_language(self, files: List[str]) -> str:
-        """
-        Filters files based on file extension. Supports .py, .cs, and .java.
+    def filter_code_files_by_language(self, files: List[CodeFile]) -> List[CodeFile]:
+        return list(
+            filter(
+                lambda file: file.language in supported_filetypes_to_lanaguage.values(),
+                files,
+            )
+        )
 
-        Args:
-            files (List[str]): A list of file paths.
-
-        Returns:
-            str: The path to the filtered files.
-        """
-        filtered_files = {}
-        for extension, language in self.supported_filetypes_to_lanaguage.items():
-            filtered_list = [file for file in files if file.endswith(extension)]
-            if len(filtered_list) > 0:
-                filtered_files[language] = filtered_list
-        return filtered_files
-
-    def get_code_files_from_file_of_paths(
-        self, file_of_paths: str
-    ) -> Dict[str, List[str]]:
-        """
-        Gets code files from a file containing paths.
-
-        Args:
-            file_of_paths (str): The path to the file containing paths.
-
-        Returns:
-            Dict[str, List[str]]: A dictionary of language -> code files.
-        """
+    def get_code_files_from_file_of_paths(self, file_of_paths: str) -> List[CodeFile]:
         if file_of_paths is None:
-            return {}
+            return []
         with open(file_of_paths, "r") as f:
             paths = f.readlines()
+        code_files = []
+        code_files.extend(self.get_code_files(paths))
+        return code_files
 
-        list_code_files_by_language = [self.get_code_files(path) for path in paths]
-        return self.merge_dictionaries(list_code_files_by_language)
+    def get_code_files_from_paths_with_members(
+        self, paths_with_members: Dict[str, List[str]]
+    ) -> List[CodeFile]:
+        code_files = []
+        for path, members in paths_with_members.items():
+            new_files = self.get_code_files([path])
+            for code_file in new_files:
+                code_file.members_missing_docstrings = members
+            code_files.extend(new_files)
+        return code_files
 
-    def merge_dictionaries(
-        self, list_of_dicts: List[Dict[str, List[str]]]
-    ) -> Dict[str, List[str]]:
-        """
-        Merges a list of dictionaries of language -> code files.
+    def remove_duplicates(self, code_files: List[CodeFile]) -> List[CodeFile]:
+        return list(set(code_files))
 
-        Args:
-            list_of_dicts (List[Dict[str, List[str]]]): A list of dictionaries of language -> code files.
 
-        Returns:
-            Dict[str, List[str]]: A merged dictionary of language -> code files.
-        """
-        all_code_files_by_language = {}
-        for language in self.supported_filetypes_to_lanaguage.values():
-            all_code_files_by_language[language] = []
-            for code_files_by_language in list_of_dicts:
-                if language in code_files_by_language:
-                    all_code_files_by_language[language].extend(
-                        code_files_by_language[language]
-                    )
+class CodeWriter:
+    def __init__(self, output_directory: str):
+        self.output_directory = output_directory
 
-        # Remove empty lists
-        all_code_files_by_language = {
-            language: files
-            for language, files in all_code_files_by_language.items()
-            if len(files) > 0
-        }
-        return all_code_files_by_language
+    async def read_file(self, code_file: CodeFile) -> str:
+        try:
+            with open(os.path.abspath(code_file.path), "r") as f:
+                code_file.code = f.read()
+                if not code_file.code:
+                    return False
+                return code_file.code
+        except Exception as e:
+            print(f"Error reading {code_file.path}: {e}")
+            return False
 
-    def remove_duplicates(self, code_files_by_language: Dict[str, List[str]]):
-        """
-        Removes duplicates from a dictionary of language -> code files.
+    async def write_file(self, code_file: CodeFile) -> bool:
+        if not self.output_directory:
+            output_path = code_file.path
+        else:
+            output_path = os.path.join(
+                self.output_directory,
+                (
+                    os.path.relpath(code_file.path, self.output_directory)
+                    .strip("..\\")
+                    .strip("../")
+                ),
+            )
+        try:
+            # Create the output directory if it doesn't exist
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        Args:
-            code_files_by_language (Dict[str, List[str]]): A dictionary of language -> code files.
+            with open(os.path.abspath(output_path), "w") as f:
+                f.write(code_file.code)
 
-        Returns:
-            Dict[str, List[str]]: A dictionary of language -> code files without duplicates.
-        """
-        for language, files in code_files_by_language.items():
-            code_files_by_language[language] = list(set(files))
-        return code_files_by_language
+            return True
+        except Exception as e:
+            print(f"Error writing to {output_path}: {e}")
+            return False

@@ -7,161 +7,157 @@ from semantic_kernel.connectors.ai.open_ai import (
     AzureChatCompletion,
 )
 from semantic_kernel.orchestration.context_variables import ContextVariables
-from sk_autodocs.code_fetcher import CodeFetcher
+from sk_autodocs.code_fetcher import CodeFetcher, CodeFile, CodeWriter
 import click
-import shutil
+from retry import retry
+from openai.error import RateLimitError
 
 semantic_skills_dir = "sk_autodocs/plugins"
-supported_filetypes_to_lanaguage = {".py": "Python", ".cs": "C#", ".java": "Java"}
-ignore_directory_list = [
-    ".venv",
-    "bin",
-    "build",
-    "dist",
-    "node_modules",
-    "obj",
-    "Debug",
-    "tst",
-    "tests",
-    "IntegrationTests",
-]
-ignore_file_list = ["__init__.py", "Program.cs", "AssemblyInfo.cs"]
-language_to_docstyle = {"C#": ".NET XML", "Python": "google style", "Java": "javadoc"}
 
-async def run_autodocs(
-    code_files_by_language: Dict[str, List[str]], output_directory: str = None
-):
-    """
-    Run the autodocs process on the given code files.
 
-    Args:
-        code_files_by_language (Dict[str, List[str]]): A dictionary containing the code files
-            to process, grouped by language.
-        output_directory (str, optional): The output directory for the processed files.
-            Defaults to None.
-
-    Returns:
-        List: A list of results from processing the code files.
-    """
+async def run_autodocs(code_files: List[CodeFile], output_directory: str = None):
     kernel = setup_kernel()
 
     output_directory = prepare_output_directory(output_directory)
-
     autodocs_plugin = kernel.skills.get_function("AutoDocs", "Rewrite")
 
-    coroutines = [
-        process_code_file(autodocs_plugin, file, language, output_directory)
-        for language, files in code_files_by_language.items()
-        for file in files
-    ]
-    return await asyncio.gather(*coroutines)
+    results = await run_tasks(code_files, autodocs_plugin, output_directory)
+
+    await write_results(results, output_directory)
 
 
-def get_code_files(paths: List[str], file_of_paths: str = None) -> Dict[str, List[str]]:
-    """
-    Get the code files from the given paths and file of paths.
-
-    Args:
-        paths (List[str]): A list of paths to search for code files.
-        file_of_paths (str, optional): A file containing a list of paths to search for code files.
-            Defaults to None.
-
-    Returns:
-        Dict[str, List[str]]: A dictionary containing the code files, grouped by language.
-    """
-    code_fetcher = CodeFetcher(
-        supported_filetypes_to_lanaguage,
-        ignore_directory_list=ignore_directory_list,
-        ignore_file_list=ignore_file_list,
-    )
-    paths_by_language = code_fetcher.get_code_files(paths)
-    code_files_from_file = code_fetcher.get_code_files_from_file_of_paths(file_of_paths)
-    code_files_by_language = code_fetcher.merge_dictionaries(
-        [paths_by_language, code_files_from_file]
-    )
-    code_files_by_language = code_fetcher.remove_duplicates(code_files_by_language)
-    return code_files_by_language
+async def work(queue, results, plugin, output_directory):
+    while True:
+        code_file = await queue.get()
+        results.append(await process_code_file(code_file, plugin, output_directory))
+        # Mark the item as processed, allowing queue.join() to keep
+        # track of remaining work and know when everything is done.
+        queue.task_done()
 
 
-async def read_code_file(file: str) -> str:
-    """
-    Read the contents of a code file.
-
-    Args:
-        file (str): The path to the code file.
-
-    Returns:
-        str: The contents of the code file.
-    """
-    click.echo("Reading " + os.path.abspath(file))
-    try:
-        with open(os.path.abspath(file), "r") as f:
-            return f.read()
-    except Exception as e:
-        print(f"Error reading {file}: {e}")
-        return False
-
-
-async def write_code_file(file: str, code: str, output_directory: str = None):
-    """
-    Write the contents of a code file to the output directory.
-
-    Args:
-        file (str): The path to the code file.
-        code (str): The contents of the code file.
-        output_directory (str, optional): The output directory for the processed files.
-            Defaults to None.
-
-    Returns:
-        bool: True if the file was written successfully, False otherwise.
-    """
-    output_path = os.path.join(output_directory, file)
-    click.echo("Writing to " + output_path)
-    try:
-        # Create the output directory if it doesn't exist
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-        with open(os.path.abspath(output_path), "w") as f:
-            f.write(code)
-        return True
-    except Exception as e:
-        print(f"Error writing to {file}: {e}")
-        return False
-
-
-async def process_code_file(
-    plugin: SKFunctionBase, file: str, language: str, output_directory: str = None
+async def run_tasks(
+    code_files: List[CodeFile],
+    plugin: SKFunctionBase,
+    output_directory: str = None,
+    num_workers: int = 6,
 ):
-    """
-    Process a code file using the given plugin, language, and output directory.
+    queue = asyncio.Queue(num_workers)
+    results = []
+    # create 50 workers and feed them tasks
+    workers = [
+        asyncio.create_task(work(queue, results, plugin, output_directory))
+        for _ in range(num_workers)
+    ]
+    # Feed the database rows to the workers. The fixed-capacity of the
+    # queue ensures that we never hold all rows in the memory at the
+    # same time. (When the queue reaches full capacity, this will block
+    # until a worker dequeues an item.)
+    for code_file in code_files:
+        await queue.put(code_file)
+    # Wait for all enqueued items to be processed.
+    await queue.join()
+    # The workers are now idly waiting for the next queue item and we
+    # no longer need them.
+    for worker in workers:
+        worker.cancel()
+    return results
 
-    Args:
-        plugin (SKFunctionBase): The plugin to use for processing the code file.
-        file (str): The path to the code file.
-        language (str): The programming language of the code file.
-        output_directory (str, optional): The output directory for the processed files.
-            Defaults to None.
-    """
-    docstyle = language_to_docstyle[language]
-    click.echo(f"Processing {file} with {language} and {docstyle}")
 
-    code = await read_code_file(file)
-    if not code:
-        return
+def get_code_files(
+    path: str = None,
+    file_of_paths: str = None,
+    paths_with_members: Dict[str, List[str]] = None,
+) -> List[CodeFile]:
+    code_fetcher = CodeFetcher()
+    code_files = []
+    code_files += code_fetcher.get_code_files([path]) or []
+    code_files += code_fetcher.get_code_files_from_file_of_paths(file_of_paths) or []
+    code_files += (
+        code_fetcher.get_code_files_from_paths_with_members(paths_with_members) or []
+    )
+    code_files = code_fetcher.remove_duplicates(code_files=code_files)
+    return code_files
 
+
+@retry(exceptions=RateLimitError, tries=5, delay=60, backoff=2, jitter=(1, 60))
+async def rewrite_code_file(plugin: SKFunctionBase, code_file: CodeFile):
     context_variables = ContextVariables(
-        code, {"language": language, "docstyle": docstyle}
+        code_file.code,
+        {
+            "language": code_file.language,
+            "docstyle": code_file.docstyle,
+            "specific_members": ", ".join(code_file.members_missing_docstrings),
+        },
     )
 
     rewritten_code_context = await plugin.invoke_async(variables=context_variables)
-
     if rewritten_code_context.error_occurred:
-        click.echo(
-            f"Error processing {file}: {rewritten_code_context._last_error_description}"
-        )
-        return
+        if "RateLimitError" in rewritten_code_context._last_error_description:
+            click.echo(f"Got RateLimitError. Retrying {code_file.path}")
+            raise RateLimitError("Rate limit exceeded")
+        print(f"Error rewriting code: {rewritten_code_context._last_error_description}")
+        return False
+    code_file.code = rewritten_code_context.result
+    return rewritten_code_context.result
 
-    await write_code_file(file, rewritten_code_context.result, output_directory)
+
+async def process_code_file(
+    file: CodeFile, plugin: SKFunctionBase, output_directory: str = None
+):
+    click.echo(
+        f"Processing {file} with {file.language} language and {file.docstyle} docstyle"
+    )
+    code_writer = CodeWriter(output_directory=output_directory)
+    code = await code_writer.read_file(code_file=file)
+    if not code:
+        click.echo("Error reading file")
+        return file, False
+
+    rewritten_code = await rewrite_code_file(plugin, file)
+    if not rewritten_code:
+        click.echo("Error rewriting file")
+
+        return file, False
+
+    success = await code_writer.write_file(file)
+
+    return file, success
+
+
+async def write_results(results: List[tuple[CodeFile, bool]], output_directory: str):
+    """
+    Write the successful results to a success file and failures to a failure file.
+
+    Args:
+        results (List[tuple]): A list of tuples containing the results of processing the code files.
+        output_directory (str): The output directory for the processed files.
+    """
+
+    click.echo("Processed files: " + str(len(results)))
+    if output_directory is None:
+        output_directory = os.getcwd()
+    success_file = os.path.join(output_directory, "success.txt")
+    failure_file = os.path.join(output_directory, "failure.txt")
+
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_directory, exist_ok=True)
+
+    success_files = []
+    failure_files = []
+    for file, success in results:
+        if success:
+            success_files.append(file.path)
+        else:
+            failure_files.append(file.path)
+
+    click.echo("Success: " + str(len(success_files)))
+    click.echo("Failure: " + str(len(failure_files)))
+
+    with open(success_file, "w") as f:
+        f.write("\n".join(success_files))
+
+    with open(failure_file, "w") as f:
+        f.write("\n".join(failure_files))
 
 
 def setup_kernel() -> sk.Kernel:
@@ -197,7 +193,7 @@ def prepare_output_directory(output_directory: str = None) -> str:
         str: The prepared output directory.
     """
     if output_directory is None:
-        output_directory = os.getcwd()
+        return None
     elif not os.path.isabs(output_directory):
         output_directory = os.path.join(os.getcwd(), output_directory)
 

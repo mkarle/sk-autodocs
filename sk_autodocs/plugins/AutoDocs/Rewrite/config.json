@@ -3,7 +3,7 @@
   "description": "Rewrite code with proper code documentation",
   "type": "completion",
   "completion": {
-    "max_tokens": 2048,
+    "max_tokens": 4096,
     "temperature": 0,
     "top_p": 0,
     "presence_penalty": 0,
@@ -24,6 +24,11 @@
       {
         "name": "docstyle",
         "description": "e.g. 'google' for Python, or 'xml' for C#",
+        "defaultValue": ""
+      },
+      {
+        "name": "specific_members",
+        "description": "Specific members or functions that need to be documented.",
         "defaultValue": ""
       }
     ]

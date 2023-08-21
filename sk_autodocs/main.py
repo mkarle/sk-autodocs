@@ -44,6 +44,12 @@ def autodocs(
     """
     Main entry point for the Autodocs CLI.
 
+    Example usage:
+        autodocs --path /path/to/code
+        autodocs --path /path/to/code --output-directory /path/to/output
+        autodocs --file-of-paths /path/to/file_of_paths
+        autodocs --dotnet-build-log /path/to/dotnet_build_log
+
     Args:
         path (str): The path to look for the code. Can be a file, directory, or github repository.
         output_directory (str, optional): The directory to output the modified files. If not specified, the files will be modified in place.
@@ -53,21 +59,15 @@ def autodocs(
     if path is None and file_of_paths is None and dotnet_build_log is None:
         print("Please specify a path, file of paths, and/or a dotnet build log.")
         return
-    paths = [path] or []
+    paths_with_members = {}
     if dotnet_build_log is not None:
-        paths += log_parser.parse_dotnet_build_log(dotnet_build_log, None)
-    code_files_by_language = ad.get_code_files(paths, file_of_paths)
-
-    click.echo("Running Autodocs with the following files:")
-    for language, files in code_files_by_language.items():
-        click.echo(f"{language}:")
-        for file in files:
-            click.echo(f"\t{file}")
+        paths_with_members = log_parser.parse_dotnet_build_log(dotnet_build_log, None)
+    code_files = ad.get_code_files(path, file_of_paths, paths_with_members)
 
     click.echo("current directory: " + os.getcwd())
     asyncio.run(
         ad.run_autodocs(
-            code_files_by_language=code_files_by_language,
+            code_files=code_files,
             output_directory=output_directory,
         )
     )
@@ -89,6 +89,9 @@ def autodocs(
 def parse_dotnet_build_log(path: str, output_file: str):
     """
     Parses a dotnet build log and outputs a file for each path missing code documentation.
+
+    Example usage:
+        autodocs parse_dotnet_build_log --path /path/to/dotnet_build_log --output-file /path/to/output_file
 
     Args:
         path (str): The path to the dotnet build log.
