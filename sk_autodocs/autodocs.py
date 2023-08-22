@@ -11,11 +11,20 @@ from sk_autodocs.code_fetcher import CodeFetcher, CodeFile, CodeWriter
 import click
 from retry import retry
 from openai.error import RateLimitError
+from signal import SIGINT, SIGTERM
 
 semantic_skills_dir = "sk_autodocs/plugins"
 
 
 async def run_autodocs(code_files: List[CodeFile], output_directory: str = None):
+    """
+    Run the autodocs process on the given code files.
+
+    Args:
+        code_files (List[CodeFile]): A list of code files to process.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+    """
     kernel = setup_kernel()
 
     output_directory = prepare_output_directory(output_directory)
@@ -26,12 +35,19 @@ async def run_autodocs(code_files: List[CodeFile], output_directory: str = None)
     await write_results(results, output_directory)
 
 
-async def work(queue, results, plugin, output_directory):
+async def work(queue: asyncio.Queue, results, plugin, output_directory):
+    """
+    Worker function for processing code files.
+
+    Args:
+        queue (asyncio.Queue): The queue containing code files to process.
+        results (list): A list to store the results of processing the code files.
+        plugin (SKFunctionBase): The autodocs plugin to use for processing.
+        output_directory (str): The output directory for the processed files.
+    """
     while True:
         code_file = await queue.get()
         results.append(await process_code_file(code_file, plugin, output_directory))
-        # Mark the item as processed, allowing queue.join() to keep
-        # track of remaining work and know when everything is done.
         queue.task_done()
 
 
@@ -41,23 +57,29 @@ async def run_tasks(
     output_directory: str = None,
     num_workers: int = 6,
 ):
+    """
+    Run tasks to process the given code files.
+
+    Args:
+        code_files (List[CodeFile]): A list of code files to process.
+        plugin (SKFunctionBase): The autodocs plugin to use for processing.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+        num_workers (int, optional): The number of worker tasks to create.
+            Defaults to 6.
+
+    Returns:
+        list: A list of results from processing the code files.
+    """
     queue = asyncio.Queue(num_workers)
     results = []
-    # create 50 workers and feed them tasks
     workers = [
         asyncio.create_task(work(queue, results, plugin, output_directory))
         for _ in range(num_workers)
     ]
-    # Feed the database rows to the workers. The fixed-capacity of the
-    # queue ensures that we never hold all rows in the memory at the
-    # same time. (When the queue reaches full capacity, this will block
-    # until a worker dequeues an item.)
     for code_file in code_files:
         await queue.put(code_file)
-    # Wait for all enqueued items to be processed.
     await queue.join()
-    # The workers are now idly waiting for the next queue item and we
-    # no longer need them.
     for worker in workers:
         worker.cancel()
     return results
@@ -68,6 +90,19 @@ def get_code_files(
     file_of_paths: str = None,
     paths_with_members: Dict[str, List[str]] = None,
 ) -> List[CodeFile]:
+    """
+    Get code files from the given sources.
+
+    Args:
+        path (str, optional): A single path to a code file. Defaults to None.
+        file_of_paths (str, optional): A file containing paths to code files.
+            Defaults to None.
+        paths_with_members (Dict[str, List[str]], optional): A dictionary mapping
+            paths to lists of member names. Defaults to None.
+
+    Returns:
+        List[CodeFile]: A list of code files.
+    """
     code_fetcher = CodeFetcher()
     code_files = []
     code_files += code_fetcher.get_code_files([path]) or []
@@ -81,12 +116,22 @@ def get_code_files(
 
 @retry(exceptions=RateLimitError, tries=5, delay=60, backoff=2, jitter=(1, 60))
 async def rewrite_code_file(plugin: SKFunctionBase, code_file: CodeFile):
+    """
+    Rewrite the given code file using the autodocs plugin.
+
+    Args:
+        plugin (SKFunctionBase): The autodocs plugin to use for rewriting.
+        code_file (CodeFile): The code file to rewrite.
+
+    Returns:
+        str: The rewritten code, or False if an error occurred.
+    """
     context_variables = ContextVariables(
         code_file.code,
         {
             "language": code_file.language,
             "docstyle": code_file.docstyle,
-            "specific_members": ", ".join(code_file.members_missing_docstrings),
+            "specific_members": ", ".join(code_file.members_missing_docstrings or []),
         },
     )
 
@@ -104,6 +149,19 @@ async def rewrite_code_file(plugin: SKFunctionBase, code_file: CodeFile):
 async def process_code_file(
     file: CodeFile, plugin: SKFunctionBase, output_directory: str = None
 ):
+    """
+    Process the given code file using the autodocs plugin.
+
+    Args:
+        file (CodeFile): The code file to process.
+        plugin (SKFunctionBase): The autodocs plugin to use for processing.
+        output_directory (str, optional): The output directory for the processed files.
+            Defaults to None.
+
+    Returns:
+        tuple[CodeFile, bool]: A tuple containing the code file and a boolean indicating
+            whether the processing was successful.
+    """
     click.echo(
         f"Processing {file} with {file.language} language and {file.docstyle} docstyle"
     )
@@ -112,11 +170,9 @@ async def process_code_file(
     if not code:
         click.echo("Error reading file")
         return file, False
-
     rewritten_code = await rewrite_code_file(plugin, file)
     if not rewritten_code:
         click.echo("Error rewriting file")
-
         return file, False
 
     success = await code_writer.write_file(file)

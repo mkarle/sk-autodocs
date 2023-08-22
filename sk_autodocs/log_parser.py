@@ -3,7 +3,33 @@ import json
 import re
 
 
-def parse_dotnet_build_log(path: str, output_file: str) -> Dict[str, List[str]]:
+def parse_dotnet_build_log(path: str, output_file: str = None) -> Dict[str, List[str]]:
+    """
+    Parse a .NET build log file to find missing XML comments for publicly visible types or members.
+    
+    This function reads a .NET build log file, extracts the paths and members with missing XML comments,
+    and returns a dictionary with the paths as keys and a list of members as values. Optionally, the
+    dictionary can be written to a JSON file.
+
+    Args:
+        path (str): The path to the .NET build log file.
+        output_file (str, optional): The path to the output JSON file. If not provided, the function
+                                      will return the dictionary without writing to a file.
+
+    Returns:
+        Dict[str, List[str]]: A dictionary with paths as keys and a list of members with missing
+                              XML comments as values.
+
+    Example:
+        >>> log_path = "path/to/build.log"
+        >>> output_path = "path/to/output.json"
+        >>> missing_comments = parse_dotnet_build_log(log_path, output_path)
+        >>> print(missing_comments)
+        {
+            "path/to/file1.cs": ["Member1", "Member2"],
+            "path/to/file2.cs": ["Member3", "Member4"]
+        }
+    """
     with open(path, "r") as f:
         lines = f.readlines()
 

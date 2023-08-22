@@ -18,7 +18,7 @@ Autodocs will modify files by adding documentation comments.
     help="The path to look for the code. Can be a file, directory, or github repository.",
 )
 @click.option(
-    "--output-directory",  # TODO make this work with relative paths
+    "--output-directory",
     "-o",
     required=False,
     help="The directory to output the modified files. If not specified, the files will be modified in place.",
@@ -34,7 +34,6 @@ Autodocs will modify files by adding documentation comments.
     required=False,
     help="The path to a dotnet build log to parse for missing documentation warnings.",
 )
-# TODO support other logs
 def autodocs(
     path: str,
     output_directory: str = None,
@@ -99,3 +98,12 @@ def parse_dotnet_build_log(path: str, output_file: str):
     """
     print("Parsing dotnet build log")
     log_parser.parse_dotnet_build_log(path, output_file)
+
+
+if __name__ == "__main__":
+    autodocs(
+        [
+            "--dotnet-build-log",
+            "C:\\Users\\markkarle\\localworkspace\\mkarle\\semantic-kernel\\dotnet\\log.log",
+        ]
+    )
