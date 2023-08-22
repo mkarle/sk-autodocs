@@ -98,12 +98,3 @@ def parse_dotnet_build_log(path: str, output_file: str):
     """
     print("Parsing dotnet build log")
     log_parser.parse_dotnet_build_log(path, output_file)
-
-
-if __name__ == "__main__":
-    autodocs(
-        [
-            "--dotnet-build-log",
-            "C:\\Users\\markkarle\\localworkspace\\mkarle\\semantic-kernel\\dotnet\\log.log",
-        ]
-    )
