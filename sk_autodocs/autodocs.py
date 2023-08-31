@@ -172,7 +172,7 @@ async def process_code_file(
         return file, False
     rewritten_code = await rewrite_code_file(plugin, file)
     if not rewritten_code:
-        click.echo("Error rewriting file")
+        click.echo(f"Error rewriting file add {file.path}")
         return file, False
 
     success = await code_writer.write_file(file)
